@@ -1,2 +1,0 @@
-# KushatVkusno
-Eat better
