@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Трекер питания (Static)</title>
+    <style>
+      body{font-family: system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;background:#f8fafc;margin:0;}
+      .container{max-width:1100px;margin:0 auto;padding:16px;}
+      .card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+      .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid #e5e7eb;border-radius:12px;padding:8px 12px;background:#fff;cursor:pointer}
+      .btn:hover{background:#f1f5f9}
+      .badge{display:inline-flex;align-items:center;border-radius:999px;padding:4px 10px;background:#f1f5f9;font-size:12px;margin-left:6px}
+      .grid{display:grid;grid-template-columns:1fr;gap:12px}
+      @media(min-width:900px){.layout{display:grid;grid-template-columns:1fr 320px;gap:16px}}
+      .small{font-size:12px;color:#64748b}
+      .input{border:1px solid #e5e7eb;border-radius:10px;padding:8px 10px}
+      .pill{border:1px solid #e5e7eb;border-radius:999px;padding:6px 10px;display:inline-block;margin:4px;cursor:pointer}
+      .pill:hover{background:#f8fafc}
+      .row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+      .hidden{display:none}
+      .title{font-weight:700}
+    </style>
+    <!-- React CDN + Babel runtime -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+  <body>
+    <div class="container">
+      <div id="root"></div>
+    </div>
+
+    <script type="text/babel">
+const {useState,useEffect,useMemo} = React;
+
+const DAYS = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"];
+const MEAL_SLOTS = [
+  { id: "breakfast", label: "Завтрак" },
+  { id: "snack1", label: "Перекус" },
+  { id: "lunch", label: "Обед" },
+  { id: "snack2", label: "Полдник" },
+  { id: "dinner", label: "Ужин" },
+  { id: "late", label: "Перед сном" },
+];
+const TEMPLATE = {
+  "Понедельник": { breakfast: "Омлет с брокколи и зеленью", snack1: "Миндаль + яблоко", lunch: "Куриная грудка на гриле + салат + киноа", snack2: "Творог с ягодами", dinner: "Лосось запечённый + тушёные кабачки и шпинат" },
+  "Вторник": { breakfast: "Гречка на воде + варёное яйцо", snack1: "Йогурт без сахара + чиа", lunch: "Индейка + овощное рагу", snack2: "Грецкие орехи + груша", dinner: "Треска с лимоном + салат из капусты" },
+  "Среда": { breakfast: "Творог + малина + льняные семена", snack1: "Авокадо + 1/2 яйца", lunch: "Говядина тушёная с овощами", snack2: "Овощные палочки + орехи", dinner: "Котлеты куриные на пару + цветная капуста" },
+  "Четверг": { breakfast: "Омлет с грибами и зеленью", snack1: "Фундук + яблоко", lunch: "Суп-пюре из брокколи + куриная грудка", snack2: "Кефир/йогурт", dinner: "Хек тушёный + салат из огурцов и шпината" },
+  "Пятница": { breakfast: "Творожная запеканка без сахара", snack1: "Семена тыквы + груша", lunch: "Индейка в духовке + салат + булгур", snack2: "Йогурт с корицей", dinner: "Стейк лосося + запечённые овощи" },
+  "Суббота": { breakfast: "Гречневые блины без сахара", snack1: "Авокадо + огурец", lunch: "Куриный суп с овощами", snack2: "Творог с ягодами", dinner: "Рыба запечённая + тушёная капуста" },
+  "Воскресенье": { breakfast: "Омлет с шпинатом и помидорами", snack1: "Миндаль + яблоко", lunch: "Говядина тушёная с брокколи и цветной капустой", snack2: "Кефир/йогурт", dinner: "Курица запечённая с кабачками и морковью" },
+};
+
+function getISOWeekKey(date = new Date()) {
+  const tmp = new Date(date);
+  tmp.setHours(0,0,0,0);
+  tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
+  const week1 = new Date(tmp.getFullYear(), 0, 4);
+  const weekNo = 1 + Math.round(((+tmp - +week1) / 86400000 - 3 + ((week1.getDay()+6)%7))/7);
+  return `${tmp.getFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+const uid = () => Math.random().toString(36).slice(2,10);
+
+const LS = {
+  week: (key) => `mealweek:${key}`,
+  lib: "meal-library",
+  xp: "meal-xp",
+  streak: "meal-streak",
+  ach: "meal-achievements"
+};
+
+const DEFAULT_LIBRARY = [
+  { id: uid(), name: "Омлет", category: "Блюдо" },
+  { id: uid(), name: "Творог 5%", category: "Блюдо" },
+  { id: uid(), name: "Вода", category: "Напиток" },
+];
+
+function newWeekData(weekKey){
+  const base = {};
+  for (const d of DAYS){
+    const dm = { water: 0 };
+    for (const s of MEAL_SLOTS){ dm[s.id] = { planned: TEMPLATE[d]?.[s.id], eaten: false }; }
+    base[d] = dm;
+  }
+  base.meta = { weekKey, createdAt: new Date().toISOString() };
+  return base;
+}
+function loadWeek(weekKey){
+  const raw = localStorage.getItem(LS.week(weekKey));
+  if (raw){ try { return JSON.parse(raw); } catch {} }
+  const w = newWeekData(weekKey); localStorage.setItem(LS.week(weekKey), JSON.stringify(w)); return w;
+}
+function saveWeek(w){ localStorage.setItem(LS.week(w.meta.weekKey), JSON.stringify(w)); }
+
+function App(){
+  const [weekKey, setWeekKey] = useState(getISOWeekKey());
+  const [week, setWeek] = useState(()=>loadWeek(weekKey));
+  const [library, setLibrary] = useState(()=>{
+    try { return JSON.parse(localStorage.getItem(LS.lib)) || DEFAULT_LIBRARY; } catch { return DEFAULT_LIBRARY; }
+  });
+  const [showLib, setShowLib] = useState(false);
+  const [newItem, setNewItem] = useState({ name: "", category: "Блюдо" });
+  const [filterCat, setFilterCat] = useState("Все");
+
+  useEffect(()=>{ setWeek(loadWeek(weekKey)); }, [weekKey]);
+  useEffect(()=>{ saveWeek(week); }, [week]);
+  useEffect(()=>{ localStorage.setItem(LS.lib, JSON.stringify(library)); }, [library]);
+
+  const dayDoneCounts = useMemo(()=>{
+    const m = {}; for (const d of DAYS){ m[d] = MEAL_SLOTS.reduce((a,s)=>a+(week[d][s.id].eaten?1:0),0); } return m;
+  }, [week]);
+
+  function toggleEaten(day, slotId){
+    setWeek(w=>{
+      const n = {...w}; const e = {...n[day][slotId]}; e.eaten = !e.eaten; n[day] = {...n[day], [slotId]: e}; return n;
+    });
+  }
+  function chooseAlternative(day, slotId, name, category){
+    setWeek(w=>{
+      const n = {...w}; const e = {...n[day][slotId]}; e.chosen = name; e.category = category; n[day] = {...n[day], [slotId]: e}; return n;
+    });
+  }
+  function addWater(day, delta){
+    setWeek(w=>{ const n={...w}; n[day].water = Math.max(0, Math.min(8, n[day].water+delta)); return n; });
+  }
+  function addToLibrary(){
+    const name = newItem.name.trim(); if (!name) return;
+    const item = { id: uid(), name, category: newItem.category };
+    setLibrary(lib=>[item, ...lib]);
+    setNewItem({ name:"", category:"Блюдо" });
+  }
+
+  return (
+    <div className="layout">
+      <section>
+        {DAYS.map(day => (
+          <div className="card" key={day}>
+            <div className="row">
+              <div className="title">{day}</div>
+              <div>
+                <span className="badge">Выполнено: {dayDoneCounts[day]}/6</span>
+                <span className="badge">Вода: {week[day].water}/8</span>
+                <button className="btn" onClick={()=>addWater(day,1)}>+ вода</button>
+              </div>
+            </div>
+            <div className="grid">
+              {MEAL_SLOTS.map(slot => {
+                const entry = week[day][slot.id];
+                const displayed = entry.chosen || entry.planned || "—";
+                return (
+                  <div className="card" key={slot.id}>
+                    <div className="row">
+                      <div>
+                        <div className="small">{slot.label}</div>
+                        <div className="title" style={{fontSize:14}}>{displayed}</div>
+                        {(entry.chosen && entry.planned && entry.chosen !== entry.planned) && (
+                          <div className="small">(вместо: {entry.planned})</div>
+                        )}
+                      </div>
+                      <div>
+                        <button className="btn" onClick={()=>toggleEaten(day, slot.id)}>{entry.eaten ? "Съедено" : "Отметить"}</button>
+                        <button className="btn" onClick={()=>{
+                          const name = prompt("Введите название блюда/продукта");
+                          if (!name) return;
+                          const category = prompt("Категория (Блюдо/Напиток/Овощи/Фрукты/Прочее)", "Блюдо") || "Прочее";
+                          const exists = library.find(i=>i.name.toLowerCase()===name.toLowerCase());
+                          if (!exists){ setLibrary(lib=>[{ id: uid(), name, category }, ...lib]); }
+                          chooseAlternative(day, slot.id, name, category);
+                        }}>Выбрать</button>
+                      </div>
+                    </div>
+                    <div className="small">Быстрый выбор: {library.slice(0,6).map(i => (
+                      <span key={i.id} className="pill" onClick={()=>chooseAlternative(day, slot.id, i.name, i.category)}>{i.name}</span>
+                    ))}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </section>
+      <aside>
+        <div className="card">
+          <div className="title">Библиотека</div>
+          <div className="row" style={{margin:"8px 0"}}>
+            <select className="input" value={filterCat} onChange={(e)=>setFilterCat(e.target.value)}>
+              {["Все","Блюдо","Напиток","Овощи/Фрукты","Прочее"].map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div style={{maxHeight:240,overflow:"auto",fontSize:14}}>
+            {(filterCat==="Все"?library:library.filter(i=>i.category===filterCat)).map(i => (
+              <div key={i.id} className="row" style={{padding:"6px 0", borderBottom:"1px solid #eee"}}>
+                <span>{i.name}</span><span className="badge">{i.category}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{marginTop:8}}>
+            <input className="input" placeholder="Название" value={newItem.name} onChange={e=>setNewItem(s=>({...s, name:e.target.value}))}/>
+            <select className="input" style={{marginLeft:6}} value={newItem.category} onChange={e=>setNewItem(s=>({...s, category:e.target.value}))}>
+              {["Блюдо","Напиток","Овощи/Фрукты","Прочее"].map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <button className="btn" style={{marginLeft:6}} onClick={addToLibrary}>Добавить</button>
+          </div>
+        </div>
+        <div className="card small">
+          <div className="title" style={{fontSize:16}}>Подсказка</div>
+          <p>Эта статическая версия работает без сборки: просто откройте файл <b>index.html</b> двойным кликом или разместите на GitHub Pages.</p>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+    </script>
+  </body>
+</html>
